@@ -30,7 +30,14 @@ export interface RunReport {
 	dryRun: boolean;
 	items: PlanItem[];
 	unchanged: number;
+	/** Drafts left alone because they changed before the route's cutoff. */
+	ignored: number;
 	counts: Record<PlanKind, number>;
+}
+
+export interface EngineOptions {
+	/** How long to wait for one model reply before importing without it. */
+	aiTimeoutMs?: number;
 }
 
 export interface LogEvent {
@@ -52,6 +59,9 @@ interface AiResult {
 
 const NO_AI: AiResult = { text: "", title: null };
 const MAX_EVENTS = 300;
+const DEFAULT_AI_TIMEOUT_MS = 90_000;
+/** A run older than this is assumed stuck; the next request starts fresh instead of queueing behind it. */
+const STALL_MS = 15 * 60_000;
 const AI_PLACEHOLDER = /\{\{\s*ai\s*\}\}/;
 const FORMAT_SYSTEM =
 	"You help a writer bring drafts from a Freewrite typewriter into their notes. Follow the instructions below exactly. Reply in Markdown only, with no preamble, no commentary and no code fences.\n\nInstructions:\n";
@@ -64,7 +74,23 @@ function emptyCounts(): Record<PlanKind, number> {
 }
 
 function newReport(dryRun: boolean): RunReport {
-	return { startedAt: Date.now(), finishedAt: 0, dryRun, items: [], unchanged: 0, counts: emptyCounts() };
+	return { startedAt: Date.now(), finishedAt: 0, dryRun, items: [], unchanged: 0, ignored: 0, counts: emptyCounts() };
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error(`${what} timed out after ${Math.round(ms / 1000)}s`)), ms);
+		promise.then(
+			(value) => {
+				clearTimeout(timer);
+				resolve(value);
+			},
+			(error: unknown) => {
+				clearTimeout(timer);
+				reject(error);
+			},
+		);
+	});
 }
 
 function errorMessage(e: unknown): string {
@@ -91,8 +117,11 @@ export class SyncEngine {
 	readonly events: LogEvent[] = [];
 	lastReport: RunReport | null = null;
 	private running = false;
+	private runStartedAt = 0;
+	private stopRequested = false;
 	private queued: RunOptions | null = null;
 	private readonly writer: VaultWriter;
+	private readonly aiTimeoutMs: number;
 
 	constructor(
 		private readonly app: App,
@@ -102,12 +131,19 @@ export class SyncEngine {
 		private readonly formatDate: DateFormatter,
 		private readonly onChange: () => void,
 		private readonly getAi: () => AiClient | null = () => null,
+		options: EngineOptions = {},
 	) {
 		this.writer = new VaultWriter(app);
+		this.aiTimeoutMs = options.aiTimeoutMs ?? DEFAULT_AI_TIMEOUT_MS;
 	}
 
 	get isRunning(): boolean {
 		return this.running;
+	}
+
+	/** Finish the draft being processed, then end the run. */
+	stop(): void {
+		if (this.running) this.stopRequested = true;
 	}
 
 	log(level: LogEvent["level"], route: string, message: string): void {
@@ -118,10 +154,15 @@ export class SyncEngine {
 
 	async run(opts: RunOptions = {}): Promise<RunReport> {
 		if (this.running) {
-			this.queued = { ...(this.queued ?? {}), ...opts, routeIds: undefined };
-			return this.lastReport ?? newReport(opts.dryRun ?? false);
+			if (Date.now() - this.runStartedAt < STALL_MS) {
+				this.queued = { ...(this.queued ?? {}), ...opts, routeIds: undefined };
+				return this.lastReport ?? newReport(opts.dryRun ?? false);
+			}
+			this.log("error", "", "The previous sync did not finish in 15 minutes and is treated as stuck; starting a new one.");
 		}
 		this.running = true;
+		this.runStartedAt = Date.now();
+		this.stopRequested = false;
 		this.onChange();
 		const report = newReport(opts.dryRun ?? false);
 		try {
@@ -134,7 +175,7 @@ export class SyncEngine {
 				if (opts.routeIds && !opts.routeIds.includes(route.id)) continue;
 				await this.runRoute(route, settings, state, index, report);
 			}
-			if (!report.dryRun) await this.saveState();
+			if (!report.dryRun) await this.saveStateSafely();
 		} catch (e) {
 			this.log("error", "", `Sync failed: ${errorMessage(e)}`);
 			report.items.push({ kind: "error", route: "", source: "", detail: errorMessage(e) });
@@ -245,6 +286,14 @@ export class SyncEngine {
 		return linked;
 	}
 
+	private async saveStateSafely(): Promise<void> {
+		try {
+			await this.saveState();
+		} catch (e) {
+			this.log("error", "", `Could not save the sync state: ${errorMessage(e)}`);
+		}
+	}
+
 	private pruneState(state: SyncState, settings: FreewriterSettings): void {
 		const routeIds = new Set(settings.routes.map((r) => r.id));
 		for (const [key, rec] of Object.entries(state.records)) {
@@ -280,19 +329,36 @@ export class SyncEngine {
 			this.log("error", route.name, `Cannot read source folder: ${errorMessage(e)}`);
 			return;
 		}
-		const scan = scanRoute(route.id, entries, state);
+		// Drafts older than the route's cutoff stay out unless they were imported before.
+		const allPaths = new Set(entries.map((e) => e.path));
+		const eligible = entries.filter((e) => route.sinceMs === null || e.mtimeMs >= route.sinceMs || state.records[e.path] !== undefined);
+		report.ignored += entries.length - eligible.length;
+		const scan = scanRoute(route.id, eligible, state, allPaths);
 		report.unchanged += scan.unchanged.length;
 		const folderLabel = path.basename(route.sourcePath) || route.name;
-		for (const entry of scan.candidates) {
+		// Newest first, so a fresh draft never waits behind a backlog.
+		const candidates = scan.candidates.slice().sort((a, b) => b.mtimeMs - a.mtimeMs);
+		for (const entry of candidates) {
+			if (this.stopRequested) {
+				this.log("warn", route.name, "Sync stopped before all drafts were processed.");
+				return;
+			}
 			try {
 				await this.processEntry(route, settings, state, index, report, entry, folderLabel, adapter);
 			} catch (e) {
 				report.items.push({ kind: "error", route: route.name, source: entry.name, detail: errorMessage(e) });
 				this.log("error", route.name, `${entry.name}: ${errorMessage(e)}`);
 			}
+			// Persist after every draft so a crash or a stuck request never costs the progress made.
+			if (!report.dryRun) await this.saveStateSafely();
 		}
 		for (const rec of scan.missing) {
-			await this.handleMissing(route, settings, rec, report);
+			try {
+				await this.handleMissing(route, settings, rec, report);
+			} catch (e) {
+				report.items.push({ kind: "error", route: route.name, source: path.basename(rec.sourcePath), detail: errorMessage(e) });
+				this.log("error", route.name, `${path.basename(rec.sourcePath)}: ${errorMessage(e)}`);
+			}
 		}
 	}
 
@@ -485,7 +551,7 @@ export class SyncEngine {
 		if (!draft) return result;
 		if (route.ai.instructions.trim()) {
 			try {
-				result.text = await client.complete(model, FORMAT_SYSTEM + route.ai.instructions.trim(), draft);
+				result.text = await withTimeout(client.complete(model, FORMAT_SYSTEM + route.ai.instructions.trim(), draft), this.aiTimeoutMs, "AI formatting");
 			} catch (e) {
 				this.log("warn", route.name, `AI formatting failed, imported without it: ${errorMessage(e)}`);
 			}
@@ -493,7 +559,9 @@ export class SyncEngine {
 		if (wantTitle && route.ai.title) {
 			try {
 				const instructions = route.ai.titleInstructions.trim() || DEFAULT_AI_TITLE_INSTRUCTIONS;
-				const title = cleanTitle(await client.complete(model, TITLE_SYSTEM + instructions, draft.slice(0, TITLE_INPUT_LIMIT)));
+				const title = cleanTitle(
+					await withTimeout(client.complete(model, TITLE_SYSTEM + instructions, draft.slice(0, TITLE_INPUT_LIMIT)), this.aiTimeoutMs, "AI title"),
+				);
 				if (title) result.title = title;
 			} catch (e) {
 				this.log("warn", route.name, `AI title failed, used the draft title: ${errorMessage(e)}`);

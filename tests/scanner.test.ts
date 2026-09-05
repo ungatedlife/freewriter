@@ -47,6 +47,12 @@ describe("scanRoute", () => {
 		expect(r.candidates).toHaveLength(1);
 	});
 
+	it("does not report ignored files as missing when told about all paths", () => {
+		const state: SyncState = { version: 1, records: { "/pb/A/old.md": record("old.md") } };
+		const r = scanRoute("r1", [], state, new Set(["/pb/A/old.md"]));
+		expect(r.missing).toHaveLength(0);
+	});
+
 	it("does not report already-missing records again", () => {
 		const state: SyncState = { version: 1, records: { "/pb/A/gone.md": record("gone.md", 10, 1000, "missing") } };
 		expect(scanRoute("r1", [], state).missing).toHaveLength(0);

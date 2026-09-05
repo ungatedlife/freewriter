@@ -61,7 +61,7 @@ function body(vaultPath: string): string {
 	return splitFrontMatter(text(vaultPath)).body;
 }
 
-function makeEngine(ai: AiClient | null = null): SyncEngine {
+function makeEngine(ai: AiClient | null = null, aiTimeoutMs?: number): SyncEngine {
 	return new SyncEngine(
 		app as unknown as ObsidianApp,
 		() => settings,
@@ -72,6 +72,7 @@ function makeEngine(ai: AiClient | null = null): SyncEngine {
 		formatDateBasic,
 		() => undefined,
 		() => ai,
+		{ aiTimeoutMs },
 	);
 }
 
@@ -89,6 +90,7 @@ beforeEach(() => {
 		filenameTemplate: "MP {{date:M-D-YYYY}}",
 		properties: A_PROPERTIES,
 		bodyTemplate: "## morning pages\n\n{{content}}",
+		sinceMs: null,
 	});
 	const routeB: Route = newRoute({
 		id: "b",
@@ -98,6 +100,7 @@ beforeEach(() => {
 		destination: "Writing/Dialogic Studio",
 		filenameTemplate: "{{title}}",
 		properties: B_PROPERTIES,
+		sinceMs: null,
 	});
 	settings = normalizeSettings({ routes: [routeA, routeB] });
 	fs.mkdirSync(path.join(tmp, "A"));
@@ -121,7 +124,8 @@ describe("first import", () => {
 		const report = await engine.run();
 		expect(report.counts.create).toBe(3);
 		expect(report.counts.error).toBe(0);
-		expect(saves).toBe(1);
+		// State is saved after every draft and once more at the end.
+		expect(saves).toBe(4);
 
 		const time = "Freewriting/Morning pages/MP 5-7-2026.md";
 		expect(props(time)).toEqual({ date: "2026-05-07", tags: ["freewriting"], freewriter_source: "A/2026-05-07 Time.md" });
@@ -446,5 +450,54 @@ describe("AI formatting", () => {
 		expect(body("Freewriting/Morning pages/Time.md")).toBe("## morning pages\n\nOk, picking up here.\n");
 		expect(engine.events.some((e) => e.level === "warn" && e.message.includes("no OpenRouter API key"))).toBe(true);
 		expect(calls).toHaveLength(0);
+	});
+});
+
+describe("cutoff and ordering", () => {
+	it("ignores drafts changed before the cutoff but keeps tracking imported ones", async () => {
+		const anxious = src("A", "2026-01-27 I-m feeling anxious this morning Ugh Fuck fuk fuck I don-t want to do anythin.md");
+		settings.routes[0].sinceMs = fs.statSync(anxious).mtimeMs;
+		const first = await engine.run();
+		expect(first.ignored).toBe(1);
+		expect(first.counts.create).toBe(2);
+		expect(app.vault.files.has("Freewriting/Morning pages/MP 5-7-2026.md")).toBe(false);
+
+		// Nothing old is reported missing, and a rerun stays quiet.
+		const again = await engine.run();
+		expect(again.items).toEqual([]);
+		expect(again.ignored).toBe(1);
+
+		// Editing the old draft after the cutoff brings it in.
+		writeSource("A", "2026-05-07 Time.md", "Time\r\n\r\nPicked up again.\r\n");
+		const third = await engine.run();
+		expect(third.counts.create).toBe(1);
+		expect(third.ignored).toBe(0);
+
+		// A cutoff in the future does not stop already-imported drafts from updating or being flagged.
+		settings.routes[0].sinceMs = Date.now() + 60_000;
+		writeSource("A", "2026-05-07 Time.md", "Time\r\n\r\nAnd again.\r\n");
+		expect((await engine.run()).counts.update).toBe(1);
+		fs.rmSync(src("A", "2026-05-07 Time.md"));
+		expect((await engine.run()).counts.missing).toBe(1);
+	});
+
+	it("processes the newest drafts first", async () => {
+		writeSource("A", "2026-09-05 Fresh.md", "Fresh\r\n\r\nJust written.\r\n");
+		const report = await engine.run();
+		const aItems = report.items.filter((i) => i.route === "Freewrite A");
+		expect(aItems[0].source).toBe("2026-09-05 Fresh.md");
+	});
+
+	it("gives up on a hung model reply and imports without it", async () => {
+		settings.openRouterApiKey = "sk-test";
+		settings.openRouterModel = "test/model";
+		settings.routes[1].enabled = false;
+		settings.routes[0].ai = { enabled: true, instructions: "Summarize", placement: "above", title: false, titleInstructions: "" };
+		const hung: AiClient = { complete: () => new Promise<string>(() => undefined) };
+		engine = makeEngine(hung, 25);
+		const report = await engine.run();
+		expect(report.counts.create).toBe(2);
+		expect(body("Freewriting/Morning pages/MP 5-7-2026.md")).toBe("## morning pages\n\nOk, picking up here.\n");
+		expect(engine.events.some((e) => e.level === "warn" && e.message.includes("timed out"))).toBe(true);
 	});
 });

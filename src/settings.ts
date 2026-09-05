@@ -39,6 +39,8 @@ export interface Route {
 	updatePolicy: UpdatePolicy;
 	stripTitleLine: boolean;
 	ai: RouteAi;
+	/** Drafts last changed before this moment are not imported. null imports everything in the folder. */
+	sinceMs: number | null;
 }
 
 export interface FreewriterSettings {
@@ -130,6 +132,7 @@ export function newRoute(partial: Partial<Route> = {}): Route {
 		updatePolicy: "sync",
 		stripTitleLine: true,
 		ai: defaultAi(),
+		sinceMs: Date.now(),
 		...partial,
 	};
 }
@@ -202,6 +205,7 @@ export function normalizeRoute(raw: unknown): Route {
 	if (POLICIES.includes(r.updatePolicy as UpdatePolicy)) route.updatePolicy = r.updatePolicy as UpdatePolicy;
 	if (typeof r.stripTitleLine === "boolean") route.stripTitleLine = r.stripTitleLine;
 	route.ai = normalizeAi(r.ai);
+	route.sinceMs = typeof r.sinceMs === "number" && r.sinceMs > 0 ? r.sinceMs : null;
 	const properties = normalizeProperties(r.properties);
 	if (properties) {
 		route.properties = properties;

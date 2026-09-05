@@ -10,8 +10,12 @@ export interface ScanResult {
 	missing: SourceRecord[];
 }
 
-/** Pure diff of what is on disk against what the state remembers. No file contents are read here. */
-export function scanRoute(routeId: string, entries: SourceEntry[], state: SyncState): ScanResult {
+/**
+ * Pure diff of what is on disk against what the state remembers. No file contents are read here.
+ * `allPaths` lists every file in the folder when `entries` is only the eligible subset, so that
+ * ignored files are not mistaken for missing ones.
+ */
+export function scanRoute(routeId: string, entries: SourceEntry[], state: SyncState, allPaths?: Set<string>): ScanResult {
 	const candidates: SourceEntry[] = [];
 	const unchanged: SourceEntry[] = [];
 	const seen = new Set<string>();
@@ -27,8 +31,9 @@ export function scanRoute(routeId: string, entries: SourceEntry[], state: SyncSt
 		if (stale) candidates.push(entry);
 		else unchanged.push(entry);
 	}
+	const present = allPaths ?? seen;
 	const missing = Object.values(state.records).filter(
-		(r) => r.routeId === routeId && !seen.has(r.sourcePath) && r.status !== "missing",
+		(r) => r.routeId === routeId && !present.has(r.sourcePath) && r.status !== "missing",
 	);
 	return { candidates, unchanged, missing };
 }

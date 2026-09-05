@@ -28,6 +28,7 @@ export class PreviewModal extends Modal {
 			`${c.skip} skipped`,
 			`${c.missing} missing`,
 			`${r.unchanged} unchanged`,
+			`${r.ignored} older ignored`,
 			`${c.error} error${c.error === 1 ? "" : "s"}`,
 		];
 		contentEl.createDiv({ cls: "fw-summary", text: parts.join(" · ") });

@@ -14,6 +14,7 @@ describe("normalizeSettings", () => {
 		expect(s.routes[0].properties.map((p) => p.key)).toEqual(["date", "tags"]);
 		expect(s.routes[0].bodyTemplate).toBe("{{content}}");
 		expect(s.routes[0].ai.enabled).toBe(false);
+		expect(s.routes[0].sinceMs).toBeNull();
 		expect(s.checkIntervalMinutes).toBe(10);
 		expect(s.identityProperty).toBe("freewriter_source");
 		expect(s.openRouterModel).toBe(DEFAULT_SETTINGS.openRouterModel);
@@ -35,6 +36,16 @@ describe("normalizeSettings", () => {
 			{ key: "topics", type: "list", value: "" },
 		]);
 		expect(s.routes[0].bodyTemplate).toBe("## morning pages\n\n{{content}}");
+	});
+});
+
+describe("newRoute", () => {
+	it("starts from now so a new route does not import a whole backlog", async () => {
+		const { newRoute } = await import("../src/settings");
+		const before = Date.now();
+		const route = newRoute();
+		expect(route.sinceMs).not.toBeNull();
+		expect(route.sinceMs!).toBeGreaterThanOrEqual(before);
 	});
 });
 

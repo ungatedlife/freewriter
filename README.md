@@ -12,7 +12,8 @@ It replaces the folder-mirroring hacks that make duplicates, forget where you mo
 - **Notes keep following their draft.** Freewriter writes one property into each note it creates (`freewriter_source` by default). Rename the note, move it three folders deep, sync it to another machine; the next time the draft changes, the update finds it. No duplicates.
 - **Your edits are never overwritten silently.** By default a note is refreshed from the draft until you edit its body in Obsidian. After that, a new version of the draft lands in a copy beside your note, so both versions survive. You can also choose "always overwrite" or "import once" per route.
 - **Optional AI, per route, through OpenRouter.** Give a route instructions in plain language ("add a bullet-point summary at the top") and pick where the result goes. Ask for AI titles and use `{{ai_title}}` in the note name. One OpenRouter key gives you every model they offer. Routes without AI never send anything anywhere.
-- **Live and reliable.** Source folders are watched, so a draft appears a few seconds after Dropbox downloads it. A full check runs when Obsidian starts and every ten minutes as a fallback. A small state file remembers what has been synced, so a restart or plugin update never re-imports your whole archive.
+- **New drafts only, unless you say otherwise.** A route imports drafts changed after its cutoff, which starts at the moment the route was created. Your archive stays where it is until you clear the cutoff or set an earlier date. Drafts you already imported keep syncing regardless.
+- **Live and reliable.** Source folders are watched, so a draft appears a few seconds after Dropbox downloads it. A full check runs when Obsidian starts and every ten minutes as a fallback. Newest drafts are processed first, progress is saved after every draft, and a model that stops answering is given up on after ninety seconds, so nothing can stall the queue.
 
 ## What it deliberately does not do
 
@@ -68,6 +69,10 @@ Example: morning pages saved as `MP 5-7-2026.md` with a `date` property, a `free
 {{content}}
 ```
 
+### Which drafts come in
+
+Each route has an **Ignore drafts changed before** date. Only drafts whose file changed after that moment are imported; everything older is left alone and never counted as missing. New routes start with the current time, so enabling one never floods your vault with an archive. Clear the field to import the whole folder, set an earlier date to reach back that far, or press the clock button to skip everything currently in the folder. Drafts that were already imported keep syncing whatever the cutoff says, and an old draft you pick up again on the Freewrite comes in the moment its file changes.
+
 ### When a draft changes
 
 Per route, choose what happens when a draft you already imported changes on the Freewrite:
@@ -88,7 +93,7 @@ The model runs when a note is created and again whenever the draft changes and t
 
 ### Commands
 
-- **Sync now**, **Preview sync (dry run)**, **Show sync log**, **Detect Freewrite folders**
+- **Sync now**, **Preview sync (dry run)**, **Show sync log**, **Detect Freewrite folders**, **Stop the current sync**
 - **Detach current note from its draft**: stop updating this note. New versions of the draft will create a new note.
 - **Reveal source draft of current note**: shows the original file in Finder or Explorer.
 - **Link existing notes by file name**: if you already have copies of your drafts in the vault (from a folder-sync tool, for example), this links each unrecorded draft to the note with the same file name instead of importing it again. The note is treated as up to date from that moment.

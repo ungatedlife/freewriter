@@ -70,11 +70,27 @@ export default class FreewriterPlugin extends Plugin {
 		this.addCommand({ id: "preview-sync", name: "Preview sync (dry run)", callback: () => void this.preview() });
 		this.addCommand({ id: "show-log", name: "Show sync log", callback: () => this.showLog() });
 		this.addCommand({
+			id: "stop-sync",
+			name: "Stop the current sync",
+			checkCallback: (checking) => {
+				if (!this.engine.isRunning) return false;
+				if (!checking) {
+					this.engine.stop();
+					new Notice("Freewriter: stopping after the current draft.");
+				}
+				return true;
+			},
+		});
+		this.addCommand({
 			id: "detect-folders",
 			name: "Detect Freewrite folders",
 			callback: async () => {
 				const n = await this.detectRoutes();
-				new Notice(n ? `Freewriter: added ${n} route${n === 1 ? "" : "s"}. Review them in settings, then enable them.` : "Freewriter: no new Postbox folders found.");
+				new Notice(
+					n
+						? `Freewriter: added ${n} route${n === 1 ? "" : "s"}. They import drafts written from now on; open Configure to include older ones.`
+						: "Freewriter: no new Postbox folders found.",
+				);
 			},
 		});
 		this.addCommand({

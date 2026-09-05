@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { formatLocalDateTime, parseLocalDateTime } from "../dates";
 import type FreewriterPlugin from "../main";
 import {
 	AI_PLACEMENT_LABELS,
@@ -106,7 +107,11 @@ export class FreewriterSettingTab extends PluginSettingTab {
 					.setCta()
 					.onClick(async () => {
 						const n = await this.plugin.detectRoutes();
-						new Notice(n ? `Added ${n} route${n === 1 ? "" : "s"}.` : "No new Postbox folders found. Add a route by hand below.");
+						new Notice(
+							n
+								? `Added ${n} route${n === 1 ? "" : "s"}. They import drafts written from now on; open Configure to include older ones.`
+								: "No new Postbox folders found. Add a route by hand below.",
+						);
 						this.display();
 					}),
 			);
@@ -126,9 +131,19 @@ export class FreewriterSettingTab extends PluginSettingTab {
 		);
 
 		new Setting(containerEl).setName("Sync").setHeading();
-		new Setting(containerEl)
-			.setName("Run a sync")
-			.setDesc(this.lastRunText())
+		const syncRow = new Setting(containerEl).setName("Run a sync").setDesc(this.lastRunText());
+		if (this.plugin.engine?.isRunning) {
+			syncRow.addButton((b) =>
+				b
+					.setButtonText("Stop")
+					.setWarning()
+					.onClick(() => {
+						this.plugin.engine.stop();
+						new Notice("Freewriter: stopping after the current draft.");
+					}),
+			);
+		}
+		syncRow
 			.addButton((b) =>
 				b
 					.setButtonText("Preview")
@@ -165,6 +180,7 @@ export class FreewriterSettingTab extends PluginSettingTab {
 	}
 
 	private lastRunText(): string {
+		if (this.plugin.engine?.isRunning) return "A sync is running. Stop ends it after the draft being processed.";
 		const report = this.plugin.engine?.lastReport;
 		if (!report) return "Preview lists what would be created or updated without writing anything.";
 		const time = new Date(report.finishedAt);
@@ -214,6 +230,7 @@ export class FreewriterSettingTab extends PluginSettingTab {
 		const props = route.properties.filter((p) => p.key.trim()).length;
 		const bits = [`Named “${route.filenameTemplate}”`, `${props} propert${props === 1 ? "y" : "ies"}`, POLICY_SHORT[route.updatePolicy]];
 		if (route.ai.enabled) bits.push("AI on");
+		bits.push(route.sinceMs === null ? "imports the whole folder" : `only drafts changed after ${formatLocalDateTime(route.sinceMs)}`);
 		return {
 			line1: `${source}  →  ${destination}`,
 			line2: bits.join(" · "),
@@ -251,6 +268,42 @@ export class FreewriterSettingTab extends PluginSettingTab {
 					heading.setName(v || "Untitled route");
 					await this.save();
 				}),
+			);
+
+		const cutoff = new Setting(containerEl)
+			.setName("Ignore drafts changed before")
+			.setDesc("Only drafts changed after this moment are imported. Drafts already in the vault keep syncing regardless. Leave empty to import everything in the folder.");
+		const cutoffWarning = cutoff.descEl.createDiv({ cls: "fw-template-warning" });
+		cutoff
+			.addText((t) => {
+				t.setPlaceholder("YYYY-MM-DD or YYYY-MM-DD HH:mm")
+					.setValue(route.sinceMs === null ? "" : formatLocalDateTime(route.sinceMs))
+					.onChange(async (v) => {
+						if (!v.trim()) {
+							route.sinceMs = null;
+							cutoffWarning.setText("");
+							await this.save();
+							return;
+						}
+						const parsed = parseLocalDateTime(v);
+						if (parsed === null) {
+							cutoffWarning.setText("Use YYYY-MM-DD, optionally followed by HH:mm.");
+							return;
+						}
+						cutoffWarning.setText("");
+						route.sinceMs = parsed;
+						await this.save();
+					});
+			})
+			.addExtraButton((b) =>
+				b
+					.setIcon("clock")
+					.setTooltip("Skip everything currently in the folder")
+					.onClick(async () => {
+						route.sinceMs = Date.now();
+						await this.save();
+						this.display();
+					}),
 			);
 
 		const sourceSetting = new Setting(containerEl)
