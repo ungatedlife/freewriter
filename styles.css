@@ -1,14 +1,28 @@
 /* Bridge — settings and modals */
 
-.bridge-route {
+/* One card per route on the main settings page. */
+.bridge-card {
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);
-	padding: 0 12px;
-	margin: 12px 0;
+	padding: 4px 14px;
+	margin: 10px 0;
+	background: var(--background-secondary);
 }
 
-.bridge-route .setting-item:first-child {
+.bridge-card .setting-item {
 	border-top: none;
+}
+
+.bridge-card .setting-item-description > div + div {
+	margin-top: 2px;
+}
+
+.bridge-warning {
+	color: var(--text-warning);
+}
+
+.bridge-subpage-header.setting-item {
+	padding-top: 0;
 }
 
 /* Rows whose control needs the full width: label and description above, input below. */

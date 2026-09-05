@@ -22,8 +22,8 @@ It replaces the folder-mirroring hacks that make duplicates, forget where you mo
 
 1. Install the plugin (see below) and enable it.
 2. Open **Settings → Bridge** and press **Detect Freewrite folders**. Bridge finds the Postbox folder inside Dropbox, Google Drive or OneDrive and adds one disabled route per draft folder. If nothing is found, press **Add route** and paste the folder path.
-3. For each route, set the destination folder, the note file name, and the note template.
-4. Enable the routes you want, then press **Preview sync**. The preview lists exactly what would be created without writing anything.
+3. Each route is a card. Press **Configure** to open its own page and set the destination folder, the note file name and the note template.
+4. Enable the routes you want, then press **Preview**. The preview lists exactly what would be created without writing anything.
 5. Press **Sync now**. From then on Bridge keeps up on its own.
 
 ### Template variables

@@ -1,10 +1,26 @@
+import * as fs from "fs";
+import * as path from "path";
 import { App, Notice, PluginSettingTab, Setting, parseYaml } from "obsidian";
 import { frontMatterYaml, splitFrontMatter } from "../frontmatter";
 import type BridgePlugin from "../main";
 import { UPDATE_POLICY_LABELS, newRoute, type AdapterId, type Route, type UpdatePolicy } from "../settings";
 import { FolderSuggest } from "./folder-suggest";
 
+type View = { kind: "list" } | { kind: "route"; id: string } | { kind: "advanced" };
+
+const POLICY_SHORT: Record<UpdatePolicy, string> = {
+	sync: "syncs until you edit it",
+	overwrite: "always overwrites",
+	once: "imports once",
+};
+
+/**
+ * Two levels: a list page with one card per route, and a subpage per route
+ * (plus one for the advanced options) reached through its Configure button.
+ */
 export class BridgeSettingTab extends PluginSettingTab {
+	private view: View = { kind: "list" };
+
 	constructor(
 		app: App,
 		private readonly plugin: BridgePlugin,
@@ -12,16 +28,42 @@ export class BridgeSettingTab extends PluginSettingTab {
 		super(app, plugin);
 	}
 
+	hide(): void {
+		this.view = { kind: "list" };
+	}
+
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+		const view = this.view;
+		if (view.kind === "route") {
+			const route = this.plugin.settings.routes.find((r) => r.id === view.id);
+			if (route) {
+				this.renderRoutePage(containerEl, route);
+				return;
+			}
+			this.view = { kind: "list" };
+		}
+		if (view.kind === "advanced") {
+			this.renderAdvancedPage(containerEl);
+			return;
+		}
+		this.renderListPage(containerEl);
+	}
+
+	private show(view: View): void {
+		this.view = view;
+		this.display();
+	}
+
+	// ---------------------------------------------------------------- list page
+
+	private renderListPage(containerEl: HTMLElement): void {
 		const settings = this.plugin.settings;
 
 		new Setting(containerEl)
 			.setName("Detect Freewrite folders")
-			.setDesc(
-				"Looks for a Postbox folder inside Dropbox, Google Drive or OneDrive and adds one route per draft folder (A, B, C). New routes start disabled so you can set their templates first.",
-			)
+			.setDesc("Finds the Postbox folder inside Dropbox, Google Drive or OneDrive and adds one route per draft folder. New routes start disabled so you can set them up first.")
 			.addButton((b) =>
 				b
 					.setButtonText("Detect")
@@ -33,98 +75,69 @@ export class BridgeSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		new Setting(containerEl)
-			.setName("Run a sync")
-			.setDesc("Preview lists what would be created or updated without writing anything.")
-			.addButton((b) => b.setButtonText("Preview").onClick(() => void this.plugin.preview()))
-			.addButton((b) => b.setButtonText("Sync now").onClick(() => void this.plugin.syncNow()));
-
 		new Setting(containerEl).setName("Routes").setHeading();
 		if (!settings.routes.length) {
-			containerEl.createEl("p", { text: "No routes yet.", cls: "bridge-muted" });
+			containerEl.createEl("p", { text: "No routes yet. Detect your Freewrite folders, or add a route by hand.", cls: "bridge-muted" });
 		}
-		settings.routes.forEach((route, i) => this.renderRoute(containerEl, route, i));
+		for (const route of settings.routes) this.renderRouteCard(containerEl, route);
 		new Setting(containerEl).addButton((b) =>
 			b.setButtonText("Add route").onClick(async () => {
-				settings.routes.push(newRoute({ name: `Route ${settings.routes.length + 1}` }));
+				const route = newRoute({ name: `Route ${settings.routes.length + 1}` });
+				settings.routes.push(route);
 				await this.plugin.saveSettings();
-				this.display();
+				this.show({ kind: "route", id: route.id });
 			}),
 		);
 
-		new Setting(containerEl).setName("Behavior").setHeading();
-
+		new Setting(containerEl).setName("Sync").setHeading();
 		new Setting(containerEl)
-			.setName("Identity property")
-			.setDesc("Front matter property that links a note to its draft. Rename or move the note freely; the link survives.")
-			.addText((t) =>
-				t.setValue(settings.identityProperty).onChange(async (v) => {
-					settings.identityProperty = v.trim() || "bridge_source";
-					await this.plugin.saveSettings();
+			.setName("Run a sync")
+			.setDesc(this.lastRunText())
+			.addButton((b) =>
+				b
+					.setButtonText("Preview")
+					.setTooltip("Lists what would be created or updated without writing anything")
+					.onClick(() => void this.plugin.preview()),
+			)
+			.addButton((b) =>
+				b.setButtonText("Sync now").onClick(async () => {
+					await this.plugin.syncNow();
+					this.display();
 				}),
+			)
+			.addExtraButton((b) =>
+				b
+					.setIcon("list")
+					.setTooltip("Show sync log")
+					.onClick(() => this.plugin.showLog()),
 			);
 
 		new Setting(containerEl)
-			.setName("Status property")
-			.setDesc("Set to source-missing when a draft disappears from its folder, and to detached when a note stops following its draft.")
-			.addText((t) =>
-				t.setValue(settings.statusProperty).onChange(async (v) => {
-					settings.statusProperty = v.trim() || "bridge_status";
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Flag notes whose draft disappeared")
-			.setDesc("Notes are never deleted. This only sets the status property so you can find them.")
-			.addToggle((t) =>
-				t.setValue(settings.markMissingSources).onChange(async (v) => {
-					settings.markMissingSources = v;
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Full check every (minutes)")
-			.setDesc("Source folders are watched live. This is the fallback check in case a change is missed.")
-			.addText((t) =>
-				t.setValue(String(settings.checkIntervalMinutes)).onChange(async (v) => {
-					const n = Number(v);
-					if (Number.isFinite(n) && n >= 1) {
-						settings.checkIntervalMinutes = n;
-						await this.plugin.saveSettings();
-					}
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Sync when Obsidian starts")
-			.addToggle((t) =>
-				t.setValue(settings.syncOnStartup).onChange(async (v) => {
-					settings.syncOnStartup = v;
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Conflict copy suffix")
-			.setDesc("Added to the note name when a new version of a draft arrives after you edited the note in Obsidian. Template variables work here.")
-			.addText((t) =>
-				t.setValue(settings.conflictSuffixTemplate).onChange(async (v) => {
-					settings.conflictSuffixTemplate = v.trim() || "(updated {{modified:YYYY-MM-DD HH-mm}})";
-					await this.plugin.saveSettings();
-				}),
-			);
+			.setName("Advanced")
+			.setDesc("Identity and status properties, fallback check interval, conflict copy naming.")
+			.addButton((b) => b.setButtonText("Open").onClick(() => this.show({ kind: "advanced" })));
 	}
 
-	private renderRoute(containerEl: HTMLElement, route: Route, index: number): void {
-		const settings = this.plugin.settings;
-		const save = (): Promise<void> => this.plugin.saveSettings();
-		const box = containerEl.createDiv({ cls: "bridge-route" });
+	private lastRunText(): string {
+		const report = this.plugin.engine?.lastReport;
+		if (!report) return "Preview lists what would be created or updated without writing anything.";
+		const time = new Date(report.finishedAt);
+		const stamp = `${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(2, "0")}`;
+		const summary = this.plugin.engine.summarize(report);
+		return `Last sync at ${stamp}: ${summary || "nothing to do"}.`;
+	}
 
-		new Setting(box)
-			.setName(route.name || `Route ${index + 1}`)
-			.setDesc(route.sourcePath ? `${route.sourcePath} → ${route.destination || "vault root"}` : "Set a source folder and a destination, then enable the route.")
+	private renderRouteCard(containerEl: HTMLElement, route: Route): void {
+		const card = containerEl.createDiv({ cls: "bridge-card" });
+		const desc = document.createDocumentFragment();
+		const summary = this.routeSummary(route);
+		desc.createDiv({ text: summary.line1 });
+		desc.createDiv({ text: summary.line2, cls: "bridge-muted" });
+		if (summary.warning) desc.createDiv({ text: summary.warning, cls: "bridge-warning" });
+
+		new Setting(card)
+			.setName(route.name || "Untitled route")
+			.setDesc(desc)
 			.addToggle((t) =>
 				t
 					.setTooltip("Enabled")
@@ -136,28 +149,68 @@ export class BridgeSettingTab extends PluginSettingTab {
 							return;
 						}
 						route.enabled = v;
-						await save();
+						await this.plugin.saveSettings();
 					}),
 			)
-			.addExtraButton((b) =>
-				b
-					.setIcon("trash")
-					.setTooltip("Remove route")
-					.onClick(async () => {
-						settings.routes.splice(index, 1);
-						await save();
-						this.display();
-					}),
+			.addButton((b) => b.setButtonText("Configure").onClick(() => this.show({ kind: "route", id: route.id })));
+	}
+
+	private routeSummary(route: Route): { line1: string; line2: string; warning: string | null } {
+		if (!route.sourcePath) {
+			return {
+				line1: "Not set up yet.",
+				line2: "Open Configure to choose a source folder and a destination.",
+				warning: null,
+			};
+		}
+		const source = `${path.basename(path.dirname(route.sourcePath))}/${path.basename(route.sourcePath)}`;
+		const destination = route.destination || "vault root";
+		return {
+			line1: `${source}  →  ${destination}`,
+			line2: `Notes named “${route.filenameTemplate}” · ${POLICY_SHORT[route.updatePolicy]}`,
+			warning: fs.existsSync(route.sourcePath) ? null : "Source folder not found on this computer.",
+		};
+	}
+
+	// --------------------------------------------------------------- route page
+
+	private renderRoutePage(containerEl: HTMLElement, route: Route): void {
+		const settings = this.plugin.settings;
+		const save = (): Promise<void> => this.plugin.saveSettings();
+
+		const heading = new Setting(containerEl)
+			.setName(route.name || "Untitled route")
+			.setHeading()
+			.addButton((b) => b.setButtonText("Back to routes").onClick(() => this.show({ kind: "list" })));
+		heading.settingEl.addClass("bridge-subpage-header");
+
+		new Setting(containerEl)
+			.setName("Enabled")
+			.setDesc("Watch the source folder and keep its drafts in the vault.")
+			.addToggle((t) =>
+				t.setValue(route.enabled).onChange(async (v) => {
+					if (v && !route.sourcePath) {
+						new Notice("Set a source folder first.");
+						t.setValue(false);
+						return;
+					}
+					route.enabled = v;
+					await save();
+				}),
 			);
 
-		new Setting(box).setName("Name").addText((t) =>
-			t.setValue(route.name).onChange(async (v) => {
-				route.name = v;
-				await save();
-			}),
-		);
+		new Setting(containerEl)
+			.setName("Name")
+			.setDesc("Shown in the route list and the sync log.")
+			.addText((t) =>
+				t.setValue(route.name).onChange(async (v) => {
+					route.name = v;
+					heading.setName(v || "Untitled route");
+					await save();
+				}),
+			);
 
-		const sourceSetting = new Setting(box)
+		const sourceSetting = new Setting(containerEl)
 			.setName("Source folder")
 			.setDesc("Folder on this computer that Postbox syncs to, for example …/Dropbox/Apps/Postbox/A.");
 		sourceSetting.settingEl.addClass("bridge-stack");
@@ -184,21 +237,23 @@ export class BridgeSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		const destinationSetting = new Setting(box)
+		const destinationSetting = new Setting(containerEl)
 			.setName("Destination folder in vault")
 			.setDesc("Notes from this route are created here. Move them anywhere afterwards; the link survives.");
 		destinationSetting.settingEl.addClass("bridge-stack");
 		destinationSetting.addText((t) => {
-				new FolderSuggest(this.app, t.inputEl);
-				t.setPlaceholder("Freewrite/A")
-					.setValue(route.destination)
-					.onChange(async (v) => {
-						route.destination = v.trim().replace(/^\/+|\/+$/g, "");
-						await save();
-					});
-			});
+			new FolderSuggest(this.app, t.inputEl);
+			t.setPlaceholder("Freewrite/A")
+				.setValue(route.destination)
+				.onChange(async (v) => {
+					route.destination = v.trim().replace(/^\/+|\/+$/g, "");
+					await save();
+				});
+		});
 
-		new Setting(box)
+		new Setting(containerEl).setName("Notes").setHeading();
+
+		new Setting(containerEl)
 			.setName("Source format")
 			.setDesc("Postbox reads the date from the file name and treats a short first line as the title. Generic imports any folder of .md or .txt files.")
 			.addDropdown((d) =>
@@ -212,18 +267,18 @@ export class BridgeSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		const filenameSetting = new Setting(box)
+		const filenameSetting = new Setting(containerEl)
 			.setName("Note file name")
-			.setDesc("Template for the note name. Variables: {{title}}, {{date}}, {{date:M-D-YYYY}}, {{folder}}, {{filename}}.");
+			.setDesc("Variables: {{title}}, {{date}}, {{date:M-D-YYYY}}, {{folder}}, {{filename}}.");
 		filenameSetting.settingEl.addClass("bridge-stack");
 		filenameSetting.addText((t) => {
-				t.setValue(route.filenameTemplate).onChange(async (v) => {
-					route.filenameTemplate = v.trim() || "{{title}}";
-					await save();
-				});
+			t.setValue(route.filenameTemplate).onChange(async (v) => {
+				route.filenameTemplate = v.trim() || "{{title}}";
+				await save();
 			});
+		});
 
-		const templateSetting = new Setting(box)
+		const templateSetting = new Setting(containerEl)
 			.setName("Note template")
 			.setDesc(
 				"The whole note, front matter included. {{content}} becomes the draft text. Also: {{title}}, {{date}}, {{modified}}, {{now}}, {{folder}}, {{route}}, {{source}}, {{words}}. Dates take moment formats, e.g. {{date:dddd, MMMM D}}.",
@@ -245,7 +300,9 @@ export class BridgeSettingTab extends PluginSettingTab {
 			});
 		});
 
-		new Setting(box)
+		new Setting(containerEl).setName("Updates").setHeading();
+
+		new Setting(containerEl)
 			.setName("When the draft changes")
 			.setDesc("With the first option Bridge overwrites the body until you edit the note in Obsidian; after that, new versions land in a copy beside it.")
 			.addDropdown((d) => {
@@ -256,12 +313,104 @@ export class BridgeSettingTab extends PluginSettingTab {
 				});
 			});
 
-		new Setting(box)
+		new Setting(containerEl)
 			.setName("Leave the title line out of the body")
 			.setDesc("When a draft starts with a short title line, the note name carries it and the body starts with the text below.")
 			.addToggle((t) =>
 				t.setValue(route.stripTitleLine).onChange(async (v) => {
 					route.stripTitleLine = v;
+					await save();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Remove this route")
+			.setDesc("Notes already in the vault are kept. Bridge just stops watching this folder.")
+			.addButton((b) => {
+				let armed = false;
+				b.setButtonText("Remove")
+					.setWarning()
+					.onClick(async () => {
+						if (!armed) {
+							armed = true;
+							b.setButtonText("Click again to remove");
+							return;
+						}
+						settings.routes = settings.routes.filter((r) => r.id !== route.id);
+						await save();
+						this.show({ kind: "list" });
+					});
+			});
+	}
+
+	// ------------------------------------------------------------ advanced page
+
+	private renderAdvancedPage(containerEl: HTMLElement): void {
+		const settings = this.plugin.settings;
+		const save = (): Promise<void> => this.plugin.saveSettings();
+
+		const heading = new Setting(containerEl)
+			.setName("Advanced")
+			.setHeading()
+			.addButton((b) => b.setButtonText("Back").onClick(() => this.show({ kind: "list" })));
+		heading.settingEl.addClass("bridge-subpage-header");
+
+		new Setting(containerEl)
+			.setName("Identity property")
+			.setDesc("Front matter property that links a note to its draft. Rename or move the note freely; the link survives.")
+			.addText((t) =>
+				t.setValue(settings.identityProperty).onChange(async (v) => {
+					settings.identityProperty = v.trim() || "bridge_source";
+					await save();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Status property")
+			.setDesc("Set to source-missing when a draft disappears from its folder, and to detached when a note stops following its draft.")
+			.addText((t) =>
+				t.setValue(settings.statusProperty).onChange(async (v) => {
+					settings.statusProperty = v.trim() || "bridge_status";
+					await save();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Flag notes whose draft disappeared")
+			.setDesc("Notes are never deleted. This only sets the status property so you can find them.")
+			.addToggle((t) =>
+				t.setValue(settings.markMissingSources).onChange(async (v) => {
+					settings.markMissingSources = v;
+					await save();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Full check every (minutes)")
+			.setDesc("Source folders are watched live. This is the fallback check in case a change is missed.")
+			.addText((t) =>
+				t.setValue(String(settings.checkIntervalMinutes)).onChange(async (v) => {
+					const n = Number(v);
+					if (Number.isFinite(n) && n >= 1) {
+						settings.checkIntervalMinutes = n;
+						await save();
+					}
+				}),
+			);
+
+		new Setting(containerEl).setName("Sync when Obsidian starts").addToggle((t) =>
+			t.setValue(settings.syncOnStartup).onChange(async (v) => {
+				settings.syncOnStartup = v;
+				await save();
+			}),
+		);
+
+		new Setting(containerEl)
+			.setName("Conflict copy suffix")
+			.setDesc("Added to the note name when a new version of a draft arrives after you edited the note in Obsidian. Template variables work here.")
+			.addText((t) =>
+				t.setValue(settings.conflictSuffixTemplate).onChange(async (v) => {
+					settings.conflictSuffixTemplate = v.trim() || "(updated {{modified:YYYY-MM-DD HH-mm}})";
 					await save();
 				}),
 			);
