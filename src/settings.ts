@@ -51,7 +51,7 @@ export const DEFAULT_SETTINGS: BridgeSettings = {
 };
 
 export const UPDATE_POLICY_LABELS: Record<UpdatePolicy, string> = {
-	sync: "Keep in sync until I edit the note in Obsidian",
+	sync: "Keep in sync until I edit it here",
 	overwrite: "Always overwrite the body",
 	once: "Import once, never update",
 };

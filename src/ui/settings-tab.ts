@@ -18,21 +18,25 @@ export class BridgeSettingTab extends PluginSettingTab {
 		const settings = this.plugin.settings;
 
 		new Setting(containerEl)
-			.setName("Freewrite folders")
+			.setName("Detect Freewrite folders")
 			.setDesc(
-				"Bridge looks for a Postbox folder inside Dropbox, Google Drive or OneDrive and adds one route per draft folder (A, B, C). New routes start disabled so you can set their templates first.",
+				"Looks for a Postbox folder inside Dropbox, Google Drive or OneDrive and adds one route per draft folder (A, B, C). New routes start disabled so you can set their templates first.",
 			)
 			.addButton((b) =>
 				b
-					.setButtonText("Detect Freewrite folders")
+					.setButtonText("Detect")
 					.setCta()
 					.onClick(async () => {
 						const n = await this.plugin.detectRoutes();
 						new Notice(n ? `Added ${n} route${n === 1 ? "" : "s"}.` : "No new Postbox folders found. Add a route by hand below.");
 						this.display();
 					}),
-			)
-			.addButton((b) => b.setButtonText("Preview sync").onClick(() => void this.plugin.preview()))
+			);
+
+		new Setting(containerEl)
+			.setName("Run a sync")
+			.setDesc("Preview lists what would be created or updated without writing anything.")
+			.addButton((b) => b.setButtonText("Preview").onClick(() => void this.plugin.preview()))
 			.addButton((b) => b.setButtonText("Sync now").onClick(() => void this.plugin.syncNow()));
 
 		new Setting(containerEl).setName("Routes").setHeading();
@@ -153,11 +157,12 @@ export class BridgeSettingTab extends PluginSettingTab {
 			}),
 		);
 
-		new Setting(box)
+		const sourceSetting = new Setting(box)
 			.setName("Source folder")
-			.setDesc("Folder on this computer that Postbox syncs to, for example …/Dropbox/Apps/Postbox/A.")
+			.setDesc("Folder on this computer that Postbox syncs to, for example …/Dropbox/Apps/Postbox/A.");
+		sourceSetting.settingEl.addClass("bridge-stack");
+		sourceSetting
 			.addText((t) => {
-				t.inputEl.addClass("bridge-wide");
 				t.setPlaceholder("/Users/you/Library/CloudStorage/Dropbox/Apps/Postbox/A")
 					.setValue(route.sourcePath)
 					.onChange(async (v) => {
@@ -179,10 +184,11 @@ export class BridgeSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		new Setting(box)
+		const destinationSetting = new Setting(box)
 			.setName("Destination folder in vault")
-			.setDesc("Notes from this route are created here. Move them anywhere afterwards; the link survives.")
-			.addText((t) => {
+			.setDesc("Notes from this route are created here. Move them anywhere afterwards; the link survives.");
+		destinationSetting.settingEl.addClass("bridge-stack");
+		destinationSetting.addText((t) => {
 				new FolderSuggest(this.app, t.inputEl);
 				t.setPlaceholder("Freewrite/A")
 					.setValue(route.destination)
@@ -206,11 +212,11 @@ export class BridgeSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		new Setting(box)
+		const filenameSetting = new Setting(box)
 			.setName("Note file name")
-			.setDesc("Template for the note name. Variables: {{title}}, {{date}}, {{date:M-D-YYYY}}, {{folder}}, {{filename}}.")
-			.addText((t) => {
-				t.inputEl.addClass("bridge-wide");
+			.setDesc("Template for the note name. Variables: {{title}}, {{date}}, {{date:M-D-YYYY}}, {{folder}}, {{filename}}.");
+		filenameSetting.settingEl.addClass("bridge-stack");
+		filenameSetting.addText((t) => {
 				t.setValue(route.filenameTemplate).onChange(async (v) => {
 					route.filenameTemplate = v.trim() || "{{title}}";
 					await save();
@@ -222,6 +228,7 @@ export class BridgeSettingTab extends PluginSettingTab {
 			.setDesc(
 				"The whole note, front matter included. {{content}} becomes the draft text. Also: {{title}}, {{date}}, {{modified}}, {{now}}, {{folder}}, {{route}}, {{source}}, {{words}}. Dates take moment formats, e.g. {{date:dddd, MMMM D}}.",
 			);
+		templateSetting.settingEl.addClass("bridge-stack");
 		templateSetting.settingEl.addClass("bridge-template");
 		const warning = templateSetting.descEl.createDiv({ cls: "bridge-template-warning" });
 		const showWarning = (template: string): void => {
