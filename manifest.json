@@ -1,0 +1,10 @@
+{
+	"id": "bridge",
+	"name": "Bridge",
+	"version": "0.1.0",
+	"minAppVersion": "1.5.0",
+	"description": "Bring Freewrite drafts from your Postbox folder (Dropbox, Google Drive or OneDrive) into your vault as notes, with a template and front matter per folder.",
+	"author": "Rob Hardy",
+	"authorUrl": "https://github.com/ungatedlife",
+	"isDesktopOnly": true
+}

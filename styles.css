@@ -1,0 +1,79 @@
+/* Bridge — settings and modals */
+
+.bridge-route {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding: 0 12px;
+	margin: 12px 0;
+}
+
+.bridge-route .setting-item:first-child {
+	border-top: none;
+}
+
+.bridge-wide {
+	width: 100%;
+}
+
+.bridge-template .setting-item-control {
+	width: 100%;
+}
+
+.bridge-template textarea {
+	width: 100%;
+	min-height: 180px;
+	font-family: var(--font-monospace);
+	font-size: var(--font-smaller);
+}
+
+.bridge-template-warning {
+	color: var(--text-error);
+	margin-top: 6px;
+}
+
+.bridge-muted {
+	color: var(--text-muted);
+}
+
+.bridge-log {
+	max-height: 60vh;
+	overflow: auto;
+	font-family: var(--font-monospace);
+	font-size: var(--font-smaller);
+}
+
+.bridge-log-row {
+	padding: 3px 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.bridge-log-row.is-warn {
+	color: var(--text-warning);
+}
+
+.bridge-log-row.is-error {
+	color: var(--text-error);
+}
+
+.bridge-preview {
+	max-height: 60vh;
+	overflow: auto;
+}
+
+.bridge-preview table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--font-smaller);
+}
+
+.bridge-preview th,
+.bridge-preview td {
+	padding: 4px 8px;
+	text-align: left;
+	vertical-align: top;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.bridge-summary {
+	margin-bottom: 12px;
+}
