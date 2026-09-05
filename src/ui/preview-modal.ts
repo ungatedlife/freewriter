@@ -30,15 +30,15 @@ export class PreviewModal extends Modal {
 			`${r.unchanged} unchanged`,
 			`${c.error} error${c.error === 1 ? "" : "s"}`,
 		];
-		contentEl.createDiv({ cls: "bridge-summary", text: parts.join(" · ") });
+		contentEl.createDiv({ cls: "fw-summary", text: parts.join(" · ") });
 		if (r.dryRun) {
-			contentEl.createEl("p", { text: "Nothing has been written yet.", cls: "bridge-muted" });
+			contentEl.createEl("p", { text: "Nothing has been written yet.", cls: "fw-muted" });
 		}
 
 		if (!r.items.length) {
-			contentEl.createEl("p", { text: "Nothing to do.", cls: "bridge-muted" });
+			contentEl.createEl("p", { text: "Nothing to do.", cls: "fw-muted" });
 		} else {
-			const wrap = contentEl.createDiv({ cls: "bridge-preview" });
+			const wrap = contentEl.createDiv({ cls: "fw-preview" });
 			const table = wrap.createEl("table");
 			const head = table.createEl("thead").createEl("tr");
 			for (const h of ["Action", "Route", "Draft", "Note"]) head.createEl("th", { text: h });
@@ -52,7 +52,7 @@ export class PreviewModal extends Modal {
 				if (item.detail) note.setAttribute("title", item.detail);
 			}
 			if (r.items.length > MAX_ROWS) {
-				wrap.createEl("p", { text: `…and ${r.items.length - MAX_ROWS} more`, cls: "bridge-muted" });
+				wrap.createEl("p", { text: `…and ${r.items.length - MAX_ROWS} more`, cls: "fw-muted" });
 			}
 		}
 

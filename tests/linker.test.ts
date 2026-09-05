@@ -21,3 +21,18 @@ describe("decideUpdate", () => {
 		expect(decideUpdate("once", true, "abc", "abc")).toBe("skip-once");
 	});
 });
+
+import { cleanTitle } from "../src/sync/engine";
+
+describe("cleanTitle", () => {
+	it("takes the first line and strips decoration", () => {
+		expect(cleanTitle('\n"On Time."\n\nSecond line')).toBe("On Time");
+		expect(cleanTitle("# Scars")).toBe("Scars");
+		expect(cleanTitle("Title: Morning pages")).toBe("Morning pages");
+		expect(cleanTitle("   ")).toBe("");
+	});
+	it("cuts very long titles at a word boundary", () => {
+		const long = Array(30).fill("word").join(" ");
+		expect(cleanTitle(long).length).toBeLessThanOrEqual(80);
+	});
+});

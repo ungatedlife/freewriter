@@ -1,7 +1,7 @@
-/* Bridge — settings and modals */
+/* Freewriter — settings and modals */
 
 /* One card per route on the main settings page. */
-.bridge-card {
+.fw-card {
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);
 	padding: 4px 14px;
@@ -9,99 +9,161 @@
 	background: var(--background-secondary);
 }
 
-.bridge-card .setting-item {
+.fw-card .setting-item {
 	border-top: none;
 }
 
-.bridge-card .setting-item-description > div + div {
+.fw-card .setting-item-description > div + div {
 	margin-top: 2px;
 }
 
-.bridge-warning {
+.fw-warning {
 	color: var(--text-warning);
 }
 
-.bridge-subpage-header.setting-item {
+.fw-muted {
+	color: var(--text-muted);
+}
+
+.fw-subpage-header.setting-item {
 	padding-top: 0;
 }
 
 /* Rows whose control needs the full width: label and description above, input below. */
-.bridge-stack.setting-item {
+.fw-stack.setting-item {
 	flex-direction: column;
 	align-items: stretch;
 }
 
-.bridge-stack .setting-item-info {
+.fw-stack .setting-item-info {
 	margin-right: 0;
 	margin-bottom: var(--size-4-2);
 }
 
-.bridge-stack .setting-item-control {
+.fw-stack .setting-item-control {
 	width: 100%;
 	justify-content: flex-start;
 }
 
-.bridge-stack .setting-item-control input[type="text"] {
+.fw-stack .setting-item-control input[type="text"],
+.fw-stack .setting-item-control input[type="password"] {
 	flex: 1 1 auto;
 	width: 100%;
 }
 
-.bridge-template textarea {
+.fw-stack textarea {
 	width: 100%;
-	min-height: 200px;
+	min-height: 120px;
 	resize: vertical;
 	font-family: var(--font-monospace);
 	font-size: var(--font-smaller);
 }
 
-.bridge-template-warning {
+.fw-template-warning {
 	color: var(--text-error);
 	margin-top: 6px;
 }
 
-.bridge-muted {
+/* Properties editor: one row per property, label column hidden. */
+.fw-prop-head {
+	display: flex;
+	gap: var(--size-4-2);
+	padding: 8px 0 2px;
 	color: var(--text-muted);
+	font-size: var(--font-smaller);
 }
 
-.bridge-log {
+.fw-prop-head span:nth-child(1) {
+	flex: 0 0 30%;
+}
+
+.fw-prop-head span:nth-child(2) {
+	flex: 0 0 120px;
+}
+
+.fw-prop-head span:nth-child(3) {
+	flex: 1 1 auto;
+}
+
+.fw-prop.setting-item {
+	border-top: none;
+	padding: 4px 0;
+}
+
+.fw-prop .setting-item-info {
+	display: none;
+}
+
+.fw-prop .setting-item-control {
+	width: 100%;
+	justify-content: flex-start;
+	flex-wrap: nowrap;
+}
+
+.fw-prop .setting-item-control input.fw-prop-key {
+	flex: 0 0 30%;
+	width: 30%;
+}
+
+.fw-prop .setting-item-control select.fw-prop-type {
+	flex: 0 0 120px;
+}
+
+.fw-prop .setting-item-control input.fw-prop-value {
+	flex: 1 1 auto;
+	width: auto;
+}
+
+.fw-prop .setting-item-control .checkbox-container {
+	margin-left: 4px;
+}
+
+.fw-suggest-desc {
+	color: var(--text-muted);
+	font-size: var(--font-smaller);
+	margin-left: 8px;
+}
+
+/* Log and preview modals. */
+.fw-log {
 	max-height: 60vh;
 	overflow: auto;
 	font-family: var(--font-monospace);
 	font-size: var(--font-smaller);
 }
 
-.bridge-log-row {
+.fw-log-row {
 	padding: 3px 0;
 	border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.bridge-log-row.is-warn {
+.fw-log-row.is-warn {
 	color: var(--text-warning);
 }
 
-.bridge-log-row.is-error {
+.fw-log-row.is-error {
 	color: var(--text-error);
 }
 
-.bridge-preview {
+.fw-preview {
 	max-height: 60vh;
 	overflow: auto;
 }
 
-.bridge-preview table {
+.fw-preview table {
 	width: 100%;
 	border-collapse: collapse;
 	font-size: var(--font-smaller);
 }
 
-.bridge-preview th,
-.bridge-preview td {
+.fw-preview th,
+.fw-preview td {
 	padding: 4px 8px;
 	text-align: left;
 	vertical-align: top;
 	border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.bridge-summary {
+.fw-summary {
 	margin-bottom: 12px;
 }

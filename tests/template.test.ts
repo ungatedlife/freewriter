@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countWords, ensureContentPlaceholder, formatDateBasic, renderTemplate, type TemplateContext } from "../src/template";
+import { collapseBlankLines, countWords, ensureContentPlaceholder, formatDateBasic, renderTemplate, type TemplateContext } from "../src/template";
 
 const ctx: TemplateContext = {
 	title: "Time",
@@ -12,6 +12,8 @@ const ctx: TemplateContext = {
 	filename: "2026-05-07 Time",
 	source: "A/2026-05-07 Time.md",
 	words: 4,
+	ai: "- a summary",
+	ai_title: "On Time",
 };
 
 describe("renderTemplate", () => {
@@ -35,6 +37,10 @@ describe("renderTemplate", () => {
 
 	it("leaves unknown variables untouched", () => {
 		expect(renderTemplate("{{nope}} {{title}}", ctx)).toBe("{{nope}} Time");
+	});
+
+	it("renders the AI variables", () => {
+		expect(renderTemplate("{{ai_title}}: {{ai}}", ctx)).toBe("On Time: - a summary");
 	});
 
 	it("uses the injected formatter", () => {
@@ -61,6 +67,12 @@ describe("formatDateBasic", () => {
 	});
 	it("keeps bracketed literals", () => {
 		expect(formatDateBasic(d, "[MP] M-D-YYYY")).toBe("MP 1-5-2026");
+	});
+});
+
+describe("collapseBlankLines", () => {
+	it("squeezes runs of blank lines and drops leading ones", () => {
+		expect(collapseBlankLines("\n\n\na\n\n\n\nb\n")).toBe("a\n\nb\n");
 	});
 });
 

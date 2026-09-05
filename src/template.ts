@@ -14,6 +14,10 @@ export interface TemplateContext {
 	/** Identity key, e.g. "A/2026-05-07 Time.md". */
 	source: string;
 	words: number;
+	/** Output of the route's AI instructions, or "" when AI is off or failed. */
+	ai: string;
+	/** AI-generated title, falling back to the draft title. */
+	ai_title: string;
 }
 
 export type DateFormatter = (date: Date, format: string) => string;
@@ -51,6 +55,10 @@ export function renderTemplate(template: string, ctx: TemplateContext, formatDat
 				return ctx.source;
 			case "words":
 				return String(ctx.words);
+			case "ai":
+				return ctx.ai;
+			case "ai_title":
+				return ctx.ai_title;
 			default:
 				return match;
 		}
@@ -61,6 +69,11 @@ export function renderTemplate(template: string, ctx: TemplateContext, formatDat
 export function ensureContentPlaceholder(template: string): string {
 	if (CONTENT_PLACEHOLDER.test(template)) return template;
 	return template.replace(/\s+$/, "") + "\n\n{{content}}\n";
+}
+
+/** Rendering an empty {{ai}} can leave runs of blank lines behind; squeeze them. */
+export function collapseBlankLines(text: string): string {
+	return text.replace(/\n{3,}/g, "\n\n").replace(/^\n+/, "");
 }
 
 export function countWords(text: string): number {

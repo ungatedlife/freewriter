@@ -1,24 +1,28 @@
 import { Notice, Plugin, moment, normalizePath } from "obsidian";
 import * as path from "path";
+import { OpenRouterClient, listOpenRouterModels, type OpenRouterModel } from "./ai/openrouter";
 import { detectPostboxRoots } from "./detect";
-import { newRoute, normalizeSettings, type BridgeSettings } from "./settings";
+import { newRoute, normalizeSettings, type FreewriterSettings } from "./settings";
 import { emptyState, normalizeState, type SyncState } from "./state";
 import { SyncEngine } from "./sync/engine";
 import { FolderWatcher } from "./sync/watcher";
 import type { DateFormatter } from "./template";
 import { LogModal } from "./ui/log-modal";
 import { PreviewModal } from "./ui/preview-modal";
-import { BridgeSettingTab } from "./ui/settings-tab";
+import { FreewriterSettingTab } from "./ui/settings-tab";
 
 type MomentLike = (input?: Date | number) => { format(format: string): string };
 // Obsidian re-exports moment as a namespace type, which TypeScript does not consider callable.
 const momentFn = moment as unknown as MomentLike;
 const formatWithMoment: DateFormatter = (date, format) => momentFn(date).format(format);
 
-export default class BridgePlugin extends Plugin {
-	settings: BridgeSettings = normalizeSettings(null);
+export default class FreewriterPlugin extends Plugin {
+	settings: FreewriterSettings = normalizeSettings(null);
 	state: SyncState = emptyState();
 	engine!: SyncEngine;
+	/** OpenRouter model list, loaded on demand for the settings page. */
+	models: OpenRouterModel[] | null = null;
+	private modelsPromise: Promise<OpenRouterModel[]> | null = null;
 	private watcher!: FolderWatcher;
 	private statusEl: HTMLElement | null = null;
 	private intervalId: number | null = null;
@@ -28,6 +32,7 @@ export default class BridgePlugin extends Plugin {
 		await this.loadSettings();
 		await this.loadState();
 
+		const ai = new OpenRouterClient(() => this.settings.openRouterApiKey);
 		this.engine = new SyncEngine(
 			this.app,
 			() => this.settings,
@@ -35,16 +40,17 @@ export default class BridgePlugin extends Plugin {
 			() => this.saveState(),
 			formatWithMoment,
 			() => this.updateStatus(),
+			() => (this.settings.openRouterApiKey.trim() ? ai : null),
 		);
 		this.watcher = new FolderWatcher((routeId) => void this.engine.run({ routeIds: [routeId] }), this.settings.debounceSeconds * 1000);
 
 		this.statusEl = this.addStatusBarItem();
 		this.statusEl.addClass("mod-clickable");
-		this.statusEl.setAttribute("aria-label", "Bridge: open the sync log");
+		this.statusEl.setAttribute("aria-label", "Freewriter: open the sync log");
 		this.statusEl.onClickEvent(() => this.showLog());
 		this.updateStatus();
 
-		this.addSettingTab(new BridgeSettingTab(this.app, this));
+		this.addSettingTab(new FreewriterSettingTab(this.app, this));
 		this.addCommands();
 
 		this.app.workspace.onLayoutReady(() => {
@@ -68,7 +74,7 @@ export default class BridgePlugin extends Plugin {
 			name: "Detect Freewrite folders",
 			callback: async () => {
 				const n = await this.detectRoutes();
-				new Notice(n ? `Bridge: added ${n} route${n === 1 ? "" : "s"}. Review them in settings, then enable them.` : "Bridge: no new Postbox folders found.");
+				new Notice(n ? `Freewriter: added ${n} route${n === 1 ? "" : "s"}. Review them in settings, then enable them.` : "Freewriter: no new Postbox folders found.");
 			},
 		});
 		this.addCommand({
@@ -76,7 +82,7 @@ export default class BridgePlugin extends Plugin {
 			name: "Link existing notes by file name",
 			callback: async () => {
 				const n = await this.engine.linkExistingByName();
-				new Notice(`Bridge: linked ${n} note${n === 1 ? "" : "s"}.`);
+				new Notice(`Freewriter: linked ${n} note${n === 1 ? "" : "s"}.`);
 			},
 		});
 		this.addCommand({
@@ -88,7 +94,7 @@ export default class BridgePlugin extends Plugin {
 				if (!file || !rec) return false;
 				if (!checking) {
 					void this.engine.detachNote(file, rec).then(() => {
-						new Notice(`Bridge: detached ${file.basename}. New versions of the draft will land in a new note.`);
+						new Notice(`Freewriter: detached ${file.basename}. New versions of the draft will land in a new note.`);
 					});
 				}
 				return true;
@@ -109,19 +115,19 @@ export default class BridgePlugin extends Plugin {
 
 	async syncNow(quiet = false): Promise<void> {
 		if (!this.settings.routes.some((r) => r.enabled)) {
-			if (!quiet) new Notice("Bridge: no routes are enabled. Set them up in the plugin settings.");
+			if (!quiet) new Notice("Freewriter: no routes are enabled. Set them up in the plugin settings.");
 			return;
 		}
 		const report = await this.engine.run();
 		if (!quiet) {
 			const summary = this.engine.summarize(report);
-			new Notice(`Bridge: ${summary || "everything is up to date"}.`);
+			new Notice(`Freewriter: ${summary || "everything is up to date"}.`);
 		}
 	}
 
 	async preview(): Promise<void> {
 		if (!this.settings.routes.some((r) => r.enabled)) {
-			new Notice("Bridge: no routes are enabled. Enable a route first.");
+			new Notice("Freewriter: no routes are enabled. Enable a route first.");
 			return;
 		}
 		const report = await this.engine.run({ dryRun: true });
@@ -152,25 +158,40 @@ export default class BridgePlugin extends Plugin {
 		return added;
 	}
 
+	async loadModels(force = false): Promise<OpenRouterModel[]> {
+		if (this.models && !force) return this.models;
+		if (!this.modelsPromise) {
+			this.modelsPromise = listOpenRouterModels()
+				.then((models) => {
+					this.models = models;
+					return models;
+				})
+				.finally(() => {
+					this.modelsPromise = null;
+				});
+		}
+		return this.modelsPromise;
+	}
+
 	updateStatus(): void {
 		if (!this.statusEl) return;
 		if (this.engine?.isRunning) {
-			this.statusEl.setText("Bridge: syncing…");
+			this.statusEl.setText("Freewriter: syncing…");
 			return;
 		}
 		const report = this.engine?.lastReport;
 		if (!report) {
-			this.statusEl.setText("Bridge");
+			this.statusEl.setText("Freewriter");
 			return;
 		}
 		const time = momentFn(report.finishedAt).format("HH:mm");
 		const conflicts = Object.values(this.state.records).filter((r) => r.status === "conflict").length;
 		if (report.counts.error) {
-			this.statusEl.setText(`Bridge: ${report.counts.error} error${report.counts.error === 1 ? "" : "s"}`);
+			this.statusEl.setText(`Freewriter: ${report.counts.error} error${report.counts.error === 1 ? "" : "s"}`);
 		} else if (conflicts) {
-			this.statusEl.setText(`Bridge ${time} · ${conflicts} conflict${conflicts === 1 ? "" : "s"}`);
+			this.statusEl.setText(`Freewriter ${time} · ${conflicts} conflict${conflicts === 1 ? "" : "s"}`);
 		} else {
-			this.statusEl.setText(`Bridge ${time}`);
+			this.statusEl.setText(`Freewriter ${time}`);
 		}
 	}
 
@@ -214,7 +235,7 @@ export default class BridgePlugin extends Plugin {
 				this.state = normalizeState(JSON.parse(await this.app.vault.adapter.read(p)));
 			}
 		} catch (e) {
-			console.error("Bridge: could not read state.json, starting with an empty state", e);
+			console.error("Freewriter: could not read state.json, starting with an empty state", e);
 			this.state = emptyState();
 		}
 	}

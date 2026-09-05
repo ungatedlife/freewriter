@@ -193,6 +193,10 @@ export class Notice {
 	constructor(public message: string) {}
 }
 
+export async function requestUrl(): Promise<never> {
+	throw new Error("network access is not available in tests");
+}
+
 export const moment = (d: Date | number) => ({ format: (f: string) => `${new Date(d).toISOString()}|${f}` });
 
 export class Plugin {}

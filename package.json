@@ -1,7 +1,7 @@
 {
-  "name": "bridge",
+  "name": "freewriter",
   "version": "0.1.0",
-  "description": "Obsidian plugin that brings Freewrite drafts from Postbox folders into your vault with per-folder templates.",
+  "description": "Obsidian plugin that brings Freewrite drafts from Postbox folders into your vault with per-folder properties, naming and optional AI formatting.",
   "private": true,
   "main": "main.js",
   "scripts": {
